@@ -5,8 +5,8 @@
 # PitStop
 
 macOS menu bar app that tracks **usage limits** across your AI coding accounts
-— **Claude Code**, **Claude Desktop**, **OpenAI Codex**, and **Google Gemini**
-(CLI + Antigravity) — and lets you **switch accounts** with one click, so when
+— **Claude Code**, **Claude Desktop**, **OpenAI Codex**, **Google Gemini**
+(CLI + Antigravity), and **OpenCode Go** — and lets you **switch accounts** with one click, so when
 one hits its rate limit you flip to another and your work keeps going.
 
 <p align="center">
@@ -38,6 +38,11 @@ What shows up where:
   one row — tagged **CLI**, **Antigravity**, or **CLI · Antigravity** — with a
   bar for the most-used model's daily quota and a compact line for the
   runners-up.
+- **OpenCode Go** usage is read-only. PitStop reads the `opencode-go` API key
+  from `~/.local/share/opencode/auth.json` and fetches the official rolling,
+  weekly, and monthly quota windows from OpenCode's usage endpoint. OpenCode
+  credentials are provider-scoped rather than account-scoped, so switching is
+  intentionally not offered.
 
 ## Quickstart
 
