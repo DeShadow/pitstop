@@ -59,7 +59,7 @@ enum Provider: CaseIterable {
         case .claude: return "Claude"
         case .codex: return "Codex"
         case .gemini: return "Gemini"
-        case .openCode: return "OpenCode Go"
+        case .openCode: return "OpenCode"
         }
     }
     /// The provider's web usage dashboard, opened from the section-header link.
