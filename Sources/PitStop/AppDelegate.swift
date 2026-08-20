@@ -347,16 +347,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             for profile in store.profiles where passedBackoffGate(profile.email) {
                 let email = profile.email
                 do {
-                    let creds = try await freshCredentials(for: email,
-                                                           isActive: email == activeEmail)
+                    let (creds, source) = try await freshCredentials(
+                        for: email, isActive: email == activeEmail)
                     // Self-heal installs poisoned before capture-time
-                    // verification existed: a row whose credentials belong to
-                    // another account gets gated instead of double-reporting
-                    // that account's usage. Active row excluded — its token is
-                    // the live item's, not the saved copy the audit deletes
-                    // (captureCurrent's verification polices the live pair,
-                    // and a verified capture overwrites a foreign saved copy).
-                    if email != activeEmail,
+                    // verification existed: a row whose saved credentials
+                    // belong to another account gets gated instead of
+                    // double-reporting that account's usage. Only the saved
+                    // copy is audited — that's the one the audit deletes, and
+                    // a blob that came from the live item was already proven
+                    // to be this account's on the way out of the store.
+                    if source == .saved,
                        case .poisoned(let owner) = await store.auditIdentity(
                         email: email, accessToken: creds.accessToken) {
                         usage[email] = nil
@@ -771,26 +771,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Returns non-expired credentials for a profile, refreshing via the
-    /// OAuth refresh grant (and persisting the result) when needed.
-    private func freshCredentials(for email: String, isActive: Bool) async throws -> OAuthCredentials {
-        guard let blob = try await store.blob(for: email, isActive: isActive) else {
+    /// OAuth refresh grant (and persisting the result) when needed. The source
+    /// comes back with them: the store decides whether the live item really
+    /// belongs to this account, so `isActive` is a request, not a verdict.
+    private func freshCredentials(for email: String, isActive: Bool) async throws
+        -> (creds: OAuthCredentials, source: ProfileStore.BlobSource) {
+        guard let stored = try await store.blob(for: email, isActive: isActive) else {
             throw ProfileStore.StoreError(message: "No stored credentials")
         }
-        var creds = try CredentialBlob.parse(blob)
-        guard creds.isExpired else { return creds }
+        var creds = try CredentialBlob.parse(stored.data)
+        guard creds.isExpired else { return (creds, stored.source) }
         guard let refreshToken = creds.refreshToken else {
             throw UsageAPI.APIError.unauthorized
         }
         let fresh = try await UsageAPI.refresh(refreshToken: refreshToken)
-        let patched = try CredentialBlob.patching(blob,
+        let patched = try CredentialBlob.patching(stored.data,
                                                   accessToken: fresh.accessToken,
                                                   refreshToken: fresh.refreshToken,
                                                   expiresAtMs: fresh.expiresAtMs)
-        try await store.storeRefreshedBlob(patched, email: email, isActive: isActive)
+        try await store.storeRefreshedBlob(patched, email: email, source: stored.source)
         creds.accessToken = fresh.accessToken
         creds.refreshToken = fresh.refreshToken ?? creds.refreshToken
         creds.expiresAtMs = fresh.expiresAtMs
-        return creds
+        return (creds, stored.source)
     }
 
     // MARK: - Status item
@@ -1338,10 +1341,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                       resetsAt: usage[email]?.fiveHour?.resetsAt,
                       lastAttempt: lastWarmAttempt[email]) else { continue }
             lastWarmAttempt[email] = now
-            guard let creds = try? await freshCredentials(for: email,
+            guard let fresh = try? await freshCredentials(for: email,
                                                           isActive: email == activeEmail)
             else { continue }
-            _ = await SessionWarmer.warm(accessToken: creds.accessToken)
+            _ = await SessionWarmer.warm(accessToken: fresh.creds.accessToken)
         }
     }
 

@@ -16,6 +16,17 @@ appear on [GitHub Releases](https://github.com/Livin21/pitstop/releases).
   **Balance** tag in place of quota bars. Thanks to @abhirampai (#2).
 
 ### Fixed
+- **A Claude account's saved credentials could be overwritten with another
+  account's.** Claude Desktop bundles its own copy of Claude Code, which
+  writes the same `Claude Code-credentials` keychain item and `~/.claude.json`
+  as the CLI — so the live credential can change owner while `~/.claude.json`
+  still names the previous account. PitStop took that pairing on trust: it
+  would report the new account's usage on the old account's row and, on the
+  next token rotation, write those foreign tokens over the old account's saved
+  snapshot, which the identity audit then deleted as poisoned. The live item's
+  owner is now confirmed before it's used for an account, and the saved
+  snapshot is used when it isn't a match. The check is cached against the
+  live blob's bytes, so the steady state costs nothing.
 - **OpenCode reset times went missing.** Resets landing on a whole second
   (Go omits the fractional part when it's zero) failed to parse, blanking
   the reset column and letting the time-to-limit projection point past a

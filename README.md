@@ -154,6 +154,19 @@ Or set it up manually:
   which happens to return the same shape as the OAuth one. PitStop never
   writes to Claude Desktop's data; you can't switch a Desktop account from
   PitStop (its login lives in that app).
+
+  Worth knowing, because it surprises people: the Desktop app also bundles a
+  full copy of Claude Code, and that copy uses the **same**
+  `Claude Code-credentials` keychain item and the same `~/.claude.json` as
+  your CLI. So using Claude Desktop can replace whichever Claude account your
+  CLI was signed into — that happens entirely between those two apps, with
+  PitStop nowhere in the loop, and there is nothing PitStop can do to prevent
+  it. What PitStop does do is notice: it confirms the live credential really
+  belongs to the account `~/.claude.json` names before using it, so a swap
+  can't make one account's row report another's usage or overwrite its saved
+  snapshot. Your saved accounts stay intact, and you can switch back. Setting
+  `CLAUDE_CONFIG_DIR` for one of the two is the only way to keep the
+  credential stores genuinely separate.
 - **OpenAI Codex** uses `~/.codex/auth.json` — the ChatGPT OAuth token the
   Codex CLI and Codex app both use — for both identity and switching. Usage
   comes from `chatgpt.com/backend-api/codex/usage`, a cheap metadata call
