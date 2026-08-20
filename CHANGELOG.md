@@ -5,6 +5,41 @@ All notable changes to PitStop are documented here. The format is based on
 appear on [GitHub Releases](https://github.com/Livin21/pitstop/releases).
 
 ## [Unreleased]
+### Added
+- **OpenCode Go usage.** A fourth provider section, read-only: PitStop reads
+  the `opencode-go` API key from OpenCode's XDG data directory
+  (`$XDG_DATA_HOME/opencode/auth.json`, default `~/.local/share/opencode`)
+  and shows the official rolling 5-hour, weekly, and monthly quota bars.
+  OpenCode's credentials are provider-scoped rather than account-scoped, so
+  there's no account identity to snapshot — switching is intentionally not
+  offered and nothing is ever written back. Balance-funded accounts show a
+  **Balance** tag in place of quota bars. Thanks to @abhirampai (#2).
+
+### Fixed
+- **OpenCode reset times went missing.** Resets landing on a whole second
+  (Go omits the fractional part when it's zero) failed to parse, blanking
+  the reset column and letting the time-to-limit projection point past a
+  window that had already reset. Nanosecond-precision stamps failed too.
+- **OpenCode ignored rate limits.** A 429 fell through to the generic error
+  path, which sets no backoff — PitStop re-hit the limited endpoint every
+  refresh instead of honoring `Retry-After` like the other providers.
+- **A re-login after an OpenCode auth failure went unnoticed** for up to an
+  hour, leaving a stale "reconnect" row up after the user had already
+  reconnected.
+- **Balance-funded OpenCode accounts showed a permanent error.** Reporting
+  no quota windows was treated as a malformed response, which also made the
+  **Balance** tag unreachable.
+- **A nonsense reset timestamp could crash the menu** on render, for any
+  provider — the relative-time formatter trapped converting an out-of-range
+  interval to `Int`.
+- **One unreadable cache entry blanked every provider's bars.** A usage
+  cache written by a different build could fail to decode as a whole,
+  discarding the saved usage, backoff, and needs-action state for Claude,
+  Codex, and Gemini along with it.
+- **`--check` printed nothing for an installed-but-not-signed-in OpenCode**,
+  the exact case worth diagnosing.
+- **`--screenshot` masked the OpenCode row into a fake email address** and
+  shifted every real account's mask, changing doc captures.
 
 ## [0.5.0] - 2026-07-16
 ### Added

@@ -27,13 +27,17 @@ Helpful to include:
 By design, PitStop:
 
 - reads the Claude Code OAuth credential, `~/.codex/auth.json`, the Gemini
-  CLI's `~/.gemini/oauth_creds.json`, and Antigravity's `gemini` keychain
-  item, decrypts Claude Desktop's `sessionKey` cookie, and stores
-  per-account snapshots in the macOS keychain (services `PitStop-profile`,
-  `PitStop-codex`, `PitStop-gemini-cli`, and `PitStop-gemini-antigravity`);
-- writes the live credential back into place when you switch accounts;
+  CLI's `~/.gemini/oauth_creds.json`, Antigravity's `gemini` keychain item,
+  and the OpenCode Go API key in `$XDG_DATA_HOME/opencode/auth.json`
+  (`~/.local/share/opencode/auth.json` by default), decrypts Claude
+  Desktop's `sessionKey` cookie, and stores per-account snapshots in the
+  macOS keychain (services `PitStop-profile`, `PitStop-codex`,
+  `PitStop-gemini-cli`, and `PitStop-gemini-antigravity`);
+- writes the live credential back into place when you switch accounts —
+  Claude Desktop and OpenCode are read-only and never written;
 - calls the same unofficial Anthropic / ChatGPT / Google Code Assist OAuth
-  and usage endpoints the official apps use;
+  and usage endpoints the official apps use, and sends the OpenCode Go key
+  as a bearer token to OpenCode's own `opencode.ai` usage endpoint;
 - keeps a non-secret display cache at `~/.config/pitstop/usage-cache.json`
   (usage percentages, reset times, account emails — never tokens), so the
   menu isn't blank after a rate-limited relaunch.

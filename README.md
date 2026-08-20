@@ -10,11 +10,11 @@ macOS menu bar app that tracks **usage limits** across your AI coding accounts
 one hits its rate limit you flip to another and your work keeps going.
 
 <p align="center">
-  <img src="docs/menu.png" width="465" alt="PitStop menu grouped into Claude, Codex, and Gemini sections, each with color-coded usage bars">
+  <img src="docs/menu.png" width="465" alt="PitStop menu grouped into Claude, Codex, Gemini, and OpenCode sections, each with color-coded usage bars">
 </p>
 
-Accounts are grouped into a section per provider — **Claude**, **Codex**, and
-**Gemini**. Within each section the live account is marked with a
+Accounts are grouped into a section per provider — **Claude**, **Codex**,
+**Gemini**, and **OpenCode**. Within each section the live account is marked with a
 coral dot and listed first, then the rest by headroom (emptiest next — the one
 you'd switch to). Hovering a switchable row flips its plan chip into a coral
 **Switch** pill. A small tag on each row names the surface — e.g. **Code**,
@@ -39,10 +39,13 @@ What shows up where:
   bar for the most-used model's daily quota and a compact line for the
   runners-up.
 - **OpenCode Go** usage is read-only. PitStop reads the `opencode-go` API key
-  from `~/.local/share/opencode/auth.json` and fetches the official rolling,
-  weekly, and monthly quota windows from OpenCode's usage endpoint. OpenCode
-  credentials are provider-scoped rather than account-scoped, so switching is
-  intentionally not offered.
+  from OpenCode's XDG data directory (`$XDG_DATA_HOME/opencode/auth.json`,
+  or `~/.local/share/opencode/auth.json` by default) and fetches the official
+  rolling, weekly, and monthly quota windows from OpenCode's usage endpoint.
+  OpenCode credentials are provider-scoped rather than account-scoped, so
+  switching is intentionally not offered, and the section shows a single row.
+  An OpenCode install that only uses bring-your-own-key providers has no Go
+  quota, so no section appears.
 
 ## Quickstart
 
@@ -52,7 +55,8 @@ run shell commands) on the target Mac:
 ```text
 Install and set up PitStop (https://github.com/Livin21/pitstop), a macOS
 menu bar app that tracks usage limits and switches accounts across Claude
-Code, Claude Desktop, OpenAI Codex, and Google Gemini, on this Mac.
+Code, Claude Desktop, OpenAI Codex, Google Gemini, and OpenCode Go, on this
+Mac.
 
 1. Verify requirements: macOS 26+, Xcode Command Line Tools
    (xcode-select --install), and Claude Code installed and logged in.
@@ -179,6 +183,14 @@ Or set it up manually:
   into the CLI files and/or the Antigravity keychain item — whichever
   surfaces that account was saved from. Inactive snapshots are kept fresh
   via Google's OAuth refresh grant, like Codex's.
+- **OpenCode Go** is the one read-only provider besides Claude Desktop. Its
+  auth store keys credentials by provider ID, not by account, so there is no
+  identity to snapshot or switch — PitStop reads the `opencode-go` API key
+  from OpenCode's XDG data directory and sends it as a bearer token to
+  `opencode.ai/zen/go/v1/usage`, which reports the rolling 5-hour, weekly,
+  and monthly percentages. Nothing is ever written back. A balance-funded
+  account reports no quota windows and shows a **Balance** tag instead of
+  bars.
 - **All keychain access goes through `/usr/bin/security`** — the same CLI
   Claude Code shells out to. One "Always Allow" grant (enter the keychain
   password when prompted) covers both apps and survives PitStop rebuilds,
@@ -294,5 +306,9 @@ participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
   grant, same as the others. It talks to Google's unofficial Code Assist
   endpoints; if those change, update `Gemini.swift`. Not installed or not
   signed in → nothing changes.
+- **OpenCode** reads one plain file, `auth.json` in OpenCode's XDG data
+  directory (no keychain prompt), and only ever reads it. It calls OpenCode's
+  own documented Go usage endpoint; if that changes, update `OpenCode.swift`.
+  Not installed, or installed without a Go subscription → nothing changes.
 - The usage endpoint and refresh flow are the same unofficial OAuth surface
   Claude Code itself uses; if Anthropic changes them, update `UsageAPI.swift`.
