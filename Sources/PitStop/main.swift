@@ -101,15 +101,21 @@ if CommandLine.arguments.contains("--check") {
         }
 
         // OpenCode Go (read-only quota; auth is provider-scoped, not account-scoped).
-        if OpenCode.isPresent {
-            print("\nOpenCode Go")
-            do {
-                let usage = try await OpenCode.liveUsage()
-                for window in usage.windows {
-                    print("   \(window.label)  \(Format.percent(window.usedPercent))  \(Format.reset(window.resetsAt))")
+        if OpenCode.isInstalled {
+            print("\n\(OpenCode.accountName)")
+            if !OpenCode.isPresent {
+                print("   installed but not signed in with a Go subscription")
+            } else {
+                do {
+                    let usage = try await OpenCode.liveUsage()
+                    if usage.useBalance { print("   balance-funded") }
+                    if usage.windows.isEmpty { print("   (no quota windows reported)") }
+                    for window in usage.windows {
+                        print("   \(window.label)  \(Format.percent(window.usedPercent))  \(Format.reset(window.resetsAt))")
+                    }
+                } catch {
+                    print("   error: \(error.localizedDescription)")
                 }
-            } catch {
-                print("   error: \(error.localizedDescription)")
             }
         }
     }

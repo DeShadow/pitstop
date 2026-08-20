@@ -164,6 +164,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var geminiUsage: [String: Gemini.Usage] = [:]
     /// OpenCode Go's account-wide subscription usage.
     private var openCodeUsage: [String: OpenCode.Usage] = [:]
+    /// The OpenCode Go API key seen on the previous refresh, so an external
+    /// re-login can clear a needs-action gate the way `captureCurrent` does
+    /// for the providers that have a profile store.
+    private var openCodeLastKey: String?
     /// Resolved cloudaicompanionProject per email (cached to avoid re-fetching).
     private var geminiProject: [String: String] = [:]
     /// Recent (time, binding-utilization) samples per account key, for the
@@ -228,18 +232,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let maskEmails = CommandLine.arguments.contains("--screenshot")
 
     /// Every distinct account email PitStop knows — saved Code profiles plus
-    /// a Desktop-only account — for stable masking and iteration.
+    /// a Desktop-only account — for stable masking and iteration. OpenCode is
+    /// deliberately absent: its row is named for the subscription, not for a
+    /// person, so it neither needs masking nor should displace a real
+    /// account's mask.
     private func allEmails() -> [String] {
         var emails = store.profiles.map(\.email)
         if let d = desktopAccount, !emails.contains(d.email) { emails.append(d.email) }
         for c in codexStore.profiles where !emails.contains(c.email) { emails.append(c.email) }
         for g in geminiStore.profiles where !emails.contains(g.email) { emails.append(g.email) }
-        if OpenCode.isPresent { emails.append("OpenCode Go") }
         return emails
     }
 
     private func displayEmail(_ email: String) -> String {
-        guard maskEmails else { return email }
+        guard maskEmails, email != OpenCode.accountName else { return email }
         let masks = ["asha@work.com", "personal@example.com", "side@example.com"]
         let i = allEmails().sorted().firstIndex(of: email) ?? 0
         return i < masks.count ? masks[i] : "account\(i + 1)@example.com"
@@ -642,8 +648,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// has no stable account identity, so this is intentionally read-only and
     /// represented as one active subscription rather than a switchable row.
     private func refreshOpenCodeAccount() async {
-        guard OpenCode.isPresent else { return }
-        let key = "opencode:OpenCode Go"
+        guard let apiKey = OpenCode.cachedAPIKey() else { return }
+        let key = OpenCode.accountKey
+        // OpenCode has no profile store to capture from, so the API key itself
+        // is the re-login signal: a changed key after a rejected token is
+        // exactly the fix, and clearing the gate lets this cycle fetch rather
+        // than leaving a stale "reconnect" up for the rest of the hour.
+        if let previous = openCodeLastKey, previous != apiKey {
+            credentialsRenewed(for: key)
+        }
+        openCodeLastKey = apiKey
         guard passedBackoffGate(key) else { return }
         do {
             openCodeUsage[key] = try await OpenCode.liveUsage()
@@ -846,7 +860,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 consider(key, "\(displayEmail(email)) (Gemini)", gu.maxUtilization)
             }
             for (key, ou) in openCodeUsage {
-                consider(key, "OpenCode Go", ou.maxUtilization)
+                consider(key, displayEmail(OpenCode.accountName), ou.maxUtilization)
             }
             guard let best else {
                 return MenuBarReading(pct: nil, isStale: false, tip: "PitStop — no usage data yet")
@@ -899,7 +913,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             rows.append(MenuAccount(email: p.email, source: source, planLabel: p.planLabel, isActive: active))
         }
         if OpenCode.isPresent {
-            rows.append(MenuAccount(email: "OpenCode Go", source: .openCodeGo,
+            rows.append(MenuAccount(email: OpenCode.accountName, source: .openCodeGo,
                                     planLabel: "Go", isActive: true))
         }
         return rows
@@ -1544,7 +1558,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let d = desktopAccount { valid.insert(d.email) }
         for c in codexStore.profiles { valid.insert("codex:\(c.email)") }
         for g in geminiStore.profiles { valid.insert("gemini:\(g.email)") }
-        if OpenCode.isPresent { valid.insert("opencode:OpenCode Go") }
+        if OpenCode.isPresent { valid.insert(OpenCode.accountKey) }
         usage = usage.filter { valid.contains($0.key) }
         codexUsage = codexUsage.filter { valid.contains($0.key) }
         geminiUsage = geminiUsage.filter { valid.contains($0.key) }
