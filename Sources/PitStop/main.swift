@@ -99,6 +99,19 @@ if CommandLine.arguments.contains("--check") {
                 }
             }
         }
+
+        // OpenCode Go (read-only quota; auth is provider-scoped, not account-scoped).
+        if OpenCode.isPresent {
+            print("\nOpenCode Go")
+            do {
+                let usage = try await OpenCode.liveUsage()
+                for window in usage.windows {
+                    print("   \(window.label)  \(Format.percent(window.usedPercent))  \(Format.reset(window.resetsAt))")
+                }
+            } catch {
+                print("   error: \(error.localizedDescription)")
+            }
+        }
     }
     semaphore.wait()
     exit(0)

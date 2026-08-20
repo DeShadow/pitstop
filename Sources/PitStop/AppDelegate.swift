@@ -53,12 +53,13 @@ enum IndicatorMetric: String, CaseIterable {
 /// A usage provider — the menu groups accounts under one section per provider.
 /// Add a case (and its title) to extend PitStop to another service.
 enum Provider: CaseIterable {
-    case claude, codex, gemini
+    case claude, codex, gemini, openCode
     var title: String {
         switch self {
         case .claude: return "Claude"
         case .codex: return "Codex"
         case .gemini: return "Gemini"
+        case .openCode: return "OpenCode"
         }
     }
     /// The provider's web usage dashboard, opened from the section-header link.
@@ -67,6 +68,7 @@ enum Provider: CaseIterable {
         case .claude: return URL(string: "https://claude.ai/new#settings/usage")
         case .codex: return URL(string: "https://chatgpt.com/codex/cloud/settings/analytics#usage")
         case .gemini: return URL(string: "https://gemini.google.com/usage")
+        case .openCode: return URL(string: "https://opencode.ai/auth")
         }
     }
 }
@@ -77,7 +79,7 @@ enum Provider: CaseIterable {
 /// account can share an email yet be different services, so per-account state
 /// is keyed by `key` (provider-namespaced), not bare email.
 struct MenuAccount {
-    enum Source { case code, desktop, both, codex, geminiCli, geminiAntigravity, geminiBoth }
+    enum Source { case code, desktop, both, codex, geminiCli, geminiAntigravity, geminiBoth, openCodeGo }
     var email: String
     var source: Source
     var planLabel: String
@@ -87,9 +89,11 @@ struct MenuAccount {
     var isGemini: Bool {
         switch source { case .geminiCli, .geminiAntigravity, .geminiBoth: return true; default: return false }
     }
+    var isOpenCode: Bool { source == .openCodeGo }
     var provider: Provider {
         if isCodex { return .codex }
         if isGemini { return .gemini }
+        if isOpenCode { return .openCode }
         return .claude
     }
     /// Switchable providers: Claude Code (owns the live credential keychain
@@ -99,6 +103,7 @@ struct MenuAccount {
     var canSwitch: Bool {
         switch source {
         case .code, .both, .codex, .geminiCli, .geminiAntigravity, .geminiBoth: return true
+        case .openCodeGo: return false
         case .desktop: return false
         }
     }
@@ -107,6 +112,7 @@ struct MenuAccount {
     var key: String {
         if isCodex { return "codex:\(email)" }
         if isGemini { return "gemini:\(email)" }
+        if isOpenCode { return "opencode:\(email)" }
         return email
     }
     /// Which surface within the provider — shown as a small tag, since the
@@ -121,6 +127,7 @@ struct MenuAccount {
         case .geminiCli: return "CLI"
         case .geminiAntigravity: return "Antigravity"
         case .geminiBoth: return "CLI · Antigravity"
+        case .openCodeGo: return nil
         }
     }
 }
@@ -155,6 +162,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var geminiLiveAntigravityEmail: String?
     /// Gemini usage, keyed by the gemini storage key ("gemini:<email>").
     private var geminiUsage: [String: Gemini.Usage] = [:]
+    /// OpenCode Go's account-wide subscription usage.
+    private var openCodeUsage: [String: OpenCode.Usage] = [:]
     /// Resolved cloudaicompanionProject per email (cached to avoid re-fetching).
     private var geminiProject: [String: String] = [:]
     /// Recent (time, binding-utilization) samples per account key, for the
@@ -225,6 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let d = desktopAccount, !emails.contains(d.email) { emails.append(d.email) }
         for c in codexStore.profiles where !emails.contains(c.email) { emails.append(c.email) }
         for g in geminiStore.profiles where !emails.contains(g.email) { emails.append(g.email) }
+        if OpenCode.isPresent { emails.append("OpenCode Go") }
         return emails
     }
 
@@ -358,6 +368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             await refreshDesktopAccount()
             await refreshCodexAccount()
             await refreshGeminiAccount()
+            await refreshOpenCodeAccount()
 
             lastRefresh = Date()
             recordUsageSamples()
@@ -385,6 +396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         usage = snap.usage
         codexUsage = snap.codexUsage
         geminiUsage = snap.geminiUsage
+        openCodeUsage = snap.openCodeUsage
         fetchError = snap.fetchError
         failureCount = snap.failureCount
         nextFetchAllowed = snap.nextFetchAllowed
@@ -398,6 +410,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func saveUsageCache() {
         try? UsageCache.save(.init(
             usage: usage, codexUsage: codexUsage, geminiUsage: geminiUsage,
+            openCodeUsage: openCodeUsage,
             fetchError: fetchError, failureCount: failureCount,
             nextFetchAllowed: nextFetchAllowed, needsAction: needsAction,
             desktopAccount: desktopAccount))
@@ -467,6 +480,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
              ClaudeDesktop.DesktopError.sessionExpired,
              Codex.CodexError.sessionExpired,
              Gemini.GeminiError.sessionExpired,
+             OpenCode.OpenCodeError.unauthorized,
+             OpenCode.OpenCodeError.noSubscription,
              is ProfileStore.ForeignCredentialsError:
             // A rejected token/session won't heal on its own — don't hammer
             // the endpoint every cycle. Refresh Now (or a re-login noticed on
@@ -620,6 +635,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     fetchError[key] = "Session expired — sign in to Gemini again"
                 }
             }
+        }
+    }
+
+    /// Fetch the active OpenCode Go subscription quota. OpenCode's auth store
+    /// has no stable account identity, so this is intentionally read-only and
+    /// represented as one active subscription rather than a switchable row.
+    private func refreshOpenCodeAccount() async {
+        guard OpenCode.isPresent else { return }
+        let key = "opencode:OpenCode Go"
+        guard passedBackoffGate(key) else { return }
+        do {
+            openCodeUsage[key] = try await OpenCode.liveUsage()
+            clearFetchError(for: key)
+        } catch {
+            recordFetchError(error, for: key)
         }
     }
 
@@ -815,6 +845,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let email = String(key.dropFirst("gemini:".count))
                 consider(key, "\(displayEmail(email)) (Gemini)", gu.maxUtilization)
             }
+            for (key, ou) in openCodeUsage {
+                consider(key, "OpenCode Go", ou.maxUtilization)
+            }
             guard let best else {
                 return MenuBarReading(pct: nil, isStale: false, tip: "PitStop — no usage data yet")
             }
@@ -865,6 +898,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let active = p.email == geminiLiveCliEmail || p.email == geminiLiveAntigravityEmail
             rows.append(MenuAccount(email: p.email, source: source, planLabel: p.planLabel, isActive: active))
         }
+        if OpenCode.isPresent {
+            rows.append(MenuAccount(email: "OpenCode Go", source: .openCodeGo,
+                                    planLabel: "Go", isActive: true))
+        }
         return rows
     }
 
@@ -873,6 +910,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func headroom(_ account: MenuAccount) -> Double {
         if account.isCodex { return codexUsage[account.key]?.maxUtilization ?? 999 }
         if account.isGemini { return geminiUsage[account.key]?.maxUtilization ?? 999 }
+        if account.isOpenCode { return openCodeUsage[account.key]?.maxUtilization ?? 999 }
         return usage[account.key]?.maxUtilization ?? 999
     }
 
@@ -1081,6 +1119,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             if let extraStr = gu.flatMap(Gemini.extrasLine) { extras.append(extraStr) }
             dataDate = gu?.fetchedAt
+        } else if account.isOpenCode {
+            let ou = openCodeUsage[key]
+            bars = (ou?.windows ?? []).map {
+                .init(label: $0.label, utilization: $0.usedPercent,
+                      resetText: Format.compactReset($0.resetsAt))
+            }
+            if ou?.useBalance == true { extras.append("Balance") }
+            dataDate = ou?.fetchedAt
         } else if account.isCodex {
             let cu = codexUsage[key]
             bars = (cu?.windows ?? []).map {
@@ -1302,7 +1348,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             samples.removeAll { now.timeIntervalSince($0.date) > 1800 }
             usageHistory[key] = samples
         }
-        for key in Set(usage.keys).union(codexUsage.keys).union(geminiUsage.keys) where fetchError[key] == nil {
+        for key in Set(usage.keys).union(codexUsage.keys).union(geminiUsage.keys)
+            .union(openCodeUsage.keys) where fetchError[key] == nil {
             for window in projectableWindows(forKey: key) {
                 record("\(key)#\(window.label)", window.util)
             }
@@ -1319,6 +1366,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if let gu = geminiUsage[key] {
             return gu.windows.map { (label: $0.label, util: $0.usedPercent, resetsAt: $0.resetsAt) }
+        }
+        if let ou = openCodeUsage[key] {
+            return ou.windows.map { (label: $0.label, util: $0.usedPercent, resetsAt: $0.resetsAt) }
         }
         if let report = usage[key] {
             var windows = [("5h", report.fiveHour), ("7d", report.sevenDay)]
@@ -1494,9 +1544,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let d = desktopAccount { valid.insert(d.email) }
         for c in codexStore.profiles { valid.insert("codex:\(c.email)") }
         for g in geminiStore.profiles { valid.insert("gemini:\(g.email)") }
+        if OpenCode.isPresent { valid.insert("opencode:OpenCode Go") }
         usage = usage.filter { valid.contains($0.key) }
         codexUsage = codexUsage.filter { valid.contains($0.key) }
         geminiUsage = geminiUsage.filter { valid.contains($0.key) }
+        openCodeUsage = openCodeUsage.filter { valid.contains($0.key) }
         fetchError = fetchError.filter { valid.contains($0.key) }
         lastWarmAttempt = lastWarmAttempt.filter { valid.contains($0.key) }
         nextFetchAllowed = nextFetchAllowed.filter { valid.contains($0.key) }
