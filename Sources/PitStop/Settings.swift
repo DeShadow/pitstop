@@ -16,12 +16,15 @@ enum LimitKind: CaseIterable {
 enum MenuBarSource: String, CaseIterable {
     /// The Claude Code account you're currently logged into (default).
     case activeClaudeCode
+    /// The Codex account currently live in ~/.codex/auth.json.
+    case activeCodex
     /// Whichever account — any provider — is closest to its limit.
     case mostUrgent
 
     var label: String {
         switch self {
         case .activeClaudeCode: return "Active Claude Code account"
+        case .activeCodex: return "Active Codex account"
         case .mostUrgent: return "Most-used account (any provider)"
         }
     }
