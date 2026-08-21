@@ -132,6 +132,46 @@ struct MenuAccount {
     }
 }
 
+/// What the menu bar item should display this tick.
+struct MenuBarReading: Equatable {
+    var pct: Int?       // nil → "–" (no data)
+    var isStale: Bool
+    var tip: String
+}
+
+/// The menu-bar reading for the Codex account currently live in auth.json.
+/// Kept pure so the source-selection behavior can be tested without AppKit.
+func activeCodexMenuBarReading(
+    liveEmail: String?,
+    usage: [String: Codex.Usage],
+    fetchError: [String: String],
+    displayEmail: (String) -> String = { $0 }
+) -> MenuBarReading {
+    guard let email = liveEmail else {
+        return MenuBarReading(pct: nil, isStale: false,
+                              tip: "PitStop — no active Codex account")
+    }
+    let key = "codex:\(email)"
+    guard let report = usage[key] else {
+        let tip = fetchError[key] ?? "PitStop — no usage data yet"
+        return MenuBarReading(pct: nil, isStale: false, tip: tip)
+    }
+
+    var tip = "\(displayEmail(email)) (Codex)"
+    if !report.windows.isEmpty {
+        tip += "\n" + report.windows
+            .map { "\($0.label) \(Format.percent($0.usedPercent))" }
+            .joined(separator: " · ")
+    }
+    if let err = fetchError[key] {
+        tip += "\n⚠️ \(err) — showing data from \(Format.updated.string(from: report.fetchedAt))"
+    }
+    let util = report.windows.map(\.usedPercent).max()
+    return MenuBarReading(pct: util.map { Int($0.rounded()) },
+                          isStale: fetchError[key] != nil,
+                          tip: tip)
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
@@ -799,16 +839,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Status item
 
     private let statusSymbol = NSImage(systemSymbolName: "flag.checkered",
-                                       accessibilityDescription: "Claude Code usage")
+                                       accessibilityDescription: "PitStop usage")
         ?? NSImage(systemSymbolName: "gauge.with.needle",
-                   accessibilityDescription: "Claude Code usage")
-
-    /// What the menu bar item should display this tick.
-    private struct MenuBarReading {
-        var pct: Int?       // nil → "–" (no data)
-        var isStale: Bool
-        var tip: String
-    }
+                   accessibilityDescription: "PitStop usage")
 
     private func updateStatusTitle() {
         guard let button = statusItem.button else { return }
@@ -845,6 +878,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return MenuBarReading(pct: util.map { Int($0.rounded()) },
                                   isStale: fetchError[email] != nil,
                                   tip: statusTip(email: email, report: report))
+        case .activeCodex:
+            return activeCodexMenuBarReading(liveEmail: codexLiveEmail,
+                                             usage: codexUsage,
+                                             fetchError: fetchError,
+                                             displayEmail: displayEmail)
         case .mostUrgent:
             // Highest binding utilization across every account that has data.
             var best: (name: String, util: Double, stale: Bool)?
