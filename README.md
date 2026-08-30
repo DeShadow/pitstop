@@ -139,8 +139,8 @@ Or set it up manually:
   with the reset time, so you can switch before sessions stall.
 - **Settings** (⌘, from the menu) is a small window holding all preferences —
   the menu-bar options above, auto-switch and its per-limit trigger
-  checkboxes, session warming and its hours, the projection toggle, and
-  launch at login.
+  checkboxes, session warming and its hours, the projection toggle, Codex
+  relaunch behavior, and launch at login.
 - **Accounts** are snapshots of the Claude Code credential blob:
   - secrets live in the **keychain** (service `PitStop-profile`, one item
     per account email) — never written to disk;
@@ -246,9 +246,13 @@ points at the new account:
 - **Running Claude Code sessions** keep working on the old in-memory token
   until it expires (tokens are short-lived), then re-read the keychain — no
   restarts.
-- **The Codex app**, if open, may need a quit-and-reopen to pick up the swap
-  (and can overwrite `auth.json` from memory while running — switch Codex with
-  the app closed for a clean result).
+- **The Codex app** receives a normal quit request before `auth.json` is
+  replaced, then reopens on the new account by default. PitStop waits for the
+  app to close and cancels the switch without touching credentials if it stays
+  open (for example, because a running task or quit dialog needs attention).
+  After relaunch it verifies that `auth.json` still names the selected account.
+  With relaunch disabled in Settings, switching is allowed only while Codex is
+  already closed.
 - **Gemini** surfaces re-read their credential stores on their own cadence —
   new CLI sessions pick the swap up immediately; a running Antigravity may
   need a restart to notice.

@@ -190,6 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Saved OpenAI Codex accounts (CLI + app share `~/.codex/auth.json`).
     /// Switchable like Claude Code, but the live store is that file.
     private let codexStore = CodexStore()
+    private let codexSwitchWorkflow = CodexSwitchWorkflow(
+        application: CodexApplicationController())
     /// The email currently live in `~/.codex/auth.json`.
     private var codexLiveEmail: String?
     /// Codex usage, keyed by the codex storage key ("codex:<email>").
@@ -1543,13 +1545,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func performCodexSwitch(to email: String, auto: Bool = false, reason: String? = nil) {
         serializedCredentialOp { [self] in
             do {
-                try await codexStore.switchTo(email: email)
+                let relaunched = try await codexSwitchWorkflow.run(
+                    relaunchApplication: Settings.relaunchCodexAfterSwitch) {
+                        try await codexStore.switchTo(email: email)
+                    } verifyCredentials: {
+                        codexStore.liveEmail() == email
+                    }
                 codexLiveEmail = email
                 Notifier.shared.post(
                     title: auto ? "Auto-switched Codex to \(displayEmail(email))"
                                 : "Switched Codex to \(displayEmail(email))",
-                    body: reason ?? "New `codex` sessions use this account. Quit and reopen the Codex app to pick it up.")
+                    body: reason ?? (relaunched
+                        ? "Codex was reopened on this account."
+                        : "New `codex` sessions use this account. Quit and reopen the Codex app to pick it up."))
                 refreshAll()
+            } catch let error as CodexSwitchWorkflow.PostSwitchError {
+                // A post-write failure has an unknown final owner: Codex may
+                // have rewritten auth.json while launching. Re-read it rather
+                // than claiming either the old or requested account is live.
+                codexLiveEmail = codexStore.liveEmail()
+                refreshAll()
+                showError("Couldn't complete Codex account switch", error)
             } catch {
                 showError("Couldn't switch Codex account", error)
             }

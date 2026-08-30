@@ -93,11 +93,19 @@ enum Settings {
             ? true : UserDefaults.standard.bool(forKey: "showProjection")
     }
 
+    /// Ask Codex to quit normally before an account switch and reopen it
+    /// afterwards. A refused or cancelled quit leaves auth.json untouched.
+    static var relaunchCodexAfterSwitch: Bool {
+        UserDefaults.standard.object(forKey: "relaunchCodexAfterSwitch") == nil
+            ? true : UserDefaults.standard.bool(forKey: "relaunchCodexAfterSwitch")
+    }
+
     /// Keys AppDelegate watches to refresh the UI when settings change.
     static let observedKeys = [
         "indicatorStyle", "indicatorMetric", "menuBarSource",
         "autoSwitchEnabled", "autoSwitchThreshold", "showProjection",
         "autoSwitchOnSession", "autoSwitchOnWeekly", "autoSwitchOnPerModel",
         "sessionWarmingEnabled", "warmWindowStartMinutes", "warmWindowEndMinutes",
+        "relaunchCodexAfterSwitch",
     ]
 }
