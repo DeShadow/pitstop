@@ -19,6 +19,7 @@ struct SettingsView: View {
     @AppStorage("warmWindowStartMinutes") private var warmStart = 360
     @AppStorage("warmWindowEndMinutes") private var warmEnd = 1080
     @AppStorage("showProjection") private var showProjection = true
+    @AppStorage("relaunchCodexAfterSwitch") private var relaunchCodex = true
 
     var body: some View {
         Form {
@@ -66,6 +67,9 @@ struct SettingsView: View {
             }
 
             Section("General") {
+                Toggle("Relaunch Codex when switching accounts", isOn: $relaunchCodex)
+                Text("Asks Codex to quit normally, replaces auth.json only after it closes, then reopens and verifies the selected account. If Codex stays open, the switch is canceled. With this off, switch only while Codex is already closed.")
+                    .font(.caption).foregroundStyle(.secondary)
                 LaunchAtLoginToggle()
             }
         }
