@@ -74,7 +74,7 @@ Mac.
    usage percentage, and `.build/release/PitStop --check` prints my
    account with live usage numbers.
 5. Tell me how to add a second account: run /login in Claude Code and
-   sign in with the other account — PitStop saves it within 2 minutes
+   sign in with the other account — PitStop saves it within 1 minute
    (or via "Save Current Account" in the menu). I'll also click "Allow"
    on the notification prompt the first time it warns about usage.
 6. If I also use OpenAI Codex, Google Gemini (CLI or Antigravity), or the
@@ -103,7 +103,7 @@ Or set it up manually:
 
 - **Usage** comes from Anthropic's OAuth usage endpoint
   (`api.anthropic.com/api/oauth/usage`), called with the same OAuth token
-  Claude Code uses. Refreshes every 2 min (debounced on menu open), with
+  Claude Code uses. Refreshes every 1 min (debounced on menu open), with
   exponential backoff honoring `Retry-After` when Anthropic rate-limits,
   retrying as soon as the backoff window expires; the last good numbers
   stay visible (rows note "showing … data"; the menu bar dims) during

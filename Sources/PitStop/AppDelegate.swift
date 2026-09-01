@@ -1,5 +1,29 @@
 import AppKit
 
+enum RefreshPolicy {
+    static let interval: TimeInterval = 60
+
+    enum FailureAction: Equatable {
+        case retryAfter(TimeInterval)
+        case needsUserAction
+        case nextCycle
+    }
+
+    static func codexFailureAction(_ error: Codex.CodexError,
+                                   failureCount: Int) -> FailureAction {
+        switch error {
+        case .usageTemporarilyUnavailable:
+            let delay = min(interval * pow(2, Double(max(failureCount, 1) - 1)),
+                            UsageCache.maxBackoff)
+            return .retryAfter(delay)
+        case .sessionExpired:
+            return .needsUserAction
+        case .malformed, .notSignedIn:
+            return .nextCycle
+        }
+    }
+}
+
 /// What the menu bar item shows.
 enum IndicatorStyle: String, CaseIterable {
     case iconAndPercent, iconOnly, percentOnly
@@ -179,7 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let settingsWindow = SettingsWindowController()
     private var timer: Timer?
     /// One-shot retry scheduled for the earliest backoff expiry, so a
-    /// rate-limited account doesn't wait out the rest of a 2-min tick.
+    /// rate-limited account doesn't wait out the rest of a 1-min tick.
     private var backoffTimer: Timer?
 
     private let store = ProfileStore()
@@ -264,7 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 0 = below 80%, 1 = ≥80%, 2 = ≥95% — to notify once per crossing.
     private var notifiedBucket: [String: Int] = [:]
 
-    private let refreshInterval: TimeInterval = 120
+    private let refreshInterval = RefreshPolicy.interval
     /// Don't re-fetch on menu open if data is younger than this.
     private let menuRefreshDebounce: TimeInterval = 30
 
@@ -524,9 +548,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             nextFetchAllowed[email] = Date().addingTimeInterval(delay)
             fetchError[email] = "Rate limited"
             needsAction.remove(email)
+        case let codexError as Codex.CodexError:
+            switch RefreshPolicy.codexFailureAction(codexError, failureCount: fails) {
+            case .retryAfter(let delay):
+                // The private usage endpoint can reject a valid token transiently.
+                // Retry on the next 1-min cycle, then back off exponentially if
+                // the rejection persists instead of declaring the OAuth session dead.
+                nextFetchAllowed[email] = Date().addingTimeInterval(delay)
+                fetchError[email] = error.localizedDescription
+                needsAction.remove(email)
+            case .needsUserAction:
+                nextFetchAllowed[email] = Date().addingTimeInterval(3600)
+                fetchError[email] = error.localizedDescription
+                needsAction.insert(email)
+            case .nextCycle:
+                nextFetchAllowed[email] = nil
+                fetchError[email] = error.localizedDescription
+                needsAction.remove(email)
+            }
         case UsageAPI.APIError.unauthorized,
              ClaudeDesktop.DesktopError.sessionExpired,
-             Codex.CodexError.sessionExpired,
              Gemini.GeminiError.sessionExpired,
              OpenCode.OpenCodeError.unauthorized,
              OpenCode.OpenCodeError.noSubscription,
@@ -591,7 +632,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Snapshot the live Codex account, then fetch usage for every saved Codex
-    /// account — refreshing an inactive account's token if it has aged out
+    /// account — refreshing an inactive account's token if its usage request
+    /// was rejected
     /// (Codex keeps only the live one fresh). Best-effort, mirroring Claude.
     private func refreshCodexAccount() async {
         guard Codex.isPresent else { return }
@@ -639,8 +681,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         do {
             return try await Codex.fetchUsage(creds)
-        } catch Codex.CodexError.sessionExpired where !isActive {
-            // Inactive token aged out — rotate it and retry once.
+        } catch Codex.CodexError.usageTemporarilyUnavailable where !isActive {
+            // The inactive token may have aged out — rotate it and retry once.
+            // If the refreshed token is also rejected, the caller treats that
+            // as a temporary usage-endpoint failure rather than a dead session.
             guard let refreshToken = creds.refreshToken else {
                 throw Codex.CodexError.sessionExpired
             }
@@ -755,7 +799,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Schedule a one-shot refresh for when the earliest active backoff
-    /// expires, instead of letting the account idle until the next 2-min
+    /// expires, instead of letting the account idle until the next 1-min
     /// tick. Floored at 10 s so a tiny Retry-After can't turn into a hot
     /// retry loop.
     private func scheduleBackoffRetry() {
@@ -792,7 +836,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if let lastRefresh {
             updatedItem?.attributedTitle = detailText(
-                "Updated \(Format.updated.string(from: lastRefresh)) · refreshes every 2 min")
+                "Updated \(Format.updated.string(from: lastRefresh)) · refreshes every 1 min")
         }
         menuNeedsRebuildOnClose = true
         return true
@@ -1067,7 +1111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(refresh)
 
         if let lastRefresh {
-            updatedItem = addDetail("Updated \(Format.updated.string(from: lastRefresh)) · refreshes every 2 min")
+            updatedItem = addDetail("Updated \(Format.updated.string(from: lastRefresh)) · refreshes every 1 min")
         }
         if let lastTopLevelError {
             addDetail("⚠️ \(lastTopLevelError)")
