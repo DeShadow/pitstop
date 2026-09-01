@@ -52,13 +52,15 @@ enum Codex {
         }
     }
 
-    enum CodexError: LocalizedError {
+    enum CodexError: LocalizedError, Equatable {
         case sessionExpired
+        case usageTemporarilyUnavailable
         case malformed
         case notSignedIn
         var errorDescription: String? {
             switch self {
             case .sessionExpired: return "Codex token expired"
+            case .usageTemporarilyUnavailable: return "Codex usage temporarily unavailable"
             case .malformed: return "Unexpected Codex usage response"
             case .notSignedIn: return "Not signed in to Codex with a ChatGPT account"
             }
@@ -147,8 +149,10 @@ enum Codex {
 
     // MARK: - Usage fetch
 
-    /// Live usage for one account's credentials. Throws `.sessionExpired` on a
-    /// 401/403 (its token has gone stale — Codex only keeps the live one fresh).
+    /// Live usage for one account's credentials. A 401/403 from this internal
+    /// metadata endpoint is not proof that the OAuth session ended: the same
+    /// token can succeed on the next request. Token refresh failures are still
+    /// reported separately as `.sessionExpired`.
     static func fetchUsage(_ creds: Creds) async throws -> Usage {
         var req = URLRequest(url: usageURL)
         req.setValue("Bearer \(creds.accessToken)", forHTTPHeaderField: "Authorization")
@@ -158,13 +162,25 @@ enum Codex {
         req.timeoutInterval = 15
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw CodexError.malformed }
-        if http.statusCode == 401 || http.statusCode == 403 { throw CodexError.sessionExpired }
-        if http.statusCode == 429 {
-            let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
-            throw UsageAPI.APIError.rateLimited(retryAfter: retryAfter)
+        let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
+        if let error = usageResponseError(statusCode: http.statusCode,
+                                          retryAfter: retryAfter) {
+            throw error
         }
-        guard http.statusCode == 200 else { throw UsageAPI.APIError.http(http.statusCode) }
         return try parseUsage(data)
+    }
+
+    /// Pure response classification used by the live fetch and its tests.
+    static func usageResponseError(statusCode: Int,
+                                   retryAfter: TimeInterval?) -> Error? {
+        if statusCode == 401 || statusCode == 403 {
+            return CodexError.usageTemporarilyUnavailable
+        }
+        if statusCode == 429 {
+            return UsageAPI.APIError.rateLimited(retryAfter: retryAfter)
+        }
+        if statusCode != 200 { return UsageAPI.APIError.http(statusCode) }
+        return nil
     }
 
     /// Convenience for the live account (used by `--check`).
