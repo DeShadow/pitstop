@@ -127,6 +127,13 @@ Or set it up manually:
   accounts (formerly Max 20x) have no 5-hour limit: their 5h line reads
   **No limit**, and a menu bar set to the 5-hour limit shows the highest
   limit for them instead.
+- **Codex weekly start** automatically sends “Привет” using the saved account
+  when a fresh usage response reports zero weekly usage and exactly 604800
+  seconds both for the window and time until reset. It calls the Codex response
+  endpoint directly; the active account and running Codex tasks are untouched.
+  Attempts are spaced at least 10 minutes apart while PitStop is running;
+  restarting the app clears that cooldown. This spends a small amount of the
+  account's included quota and requires the supported `gpt-6.1-sol` model.
 - **Auto-switch** (off by default) flips a switchable provider's live account
   — Claude Code, Codex, or Gemini — to the saved account with the most
   headroom once the live one crosses a configurable threshold, and notifies
