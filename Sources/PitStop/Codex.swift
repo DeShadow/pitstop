@@ -40,6 +40,7 @@ enum Codex {
         }
         var windows: [Window]
         var fetchedAt = Date()
+        var idlePeriodSeconds: Int? = nil
         var maxUtilization: Double { windows.map(\.usedPercent).max() ?? 0 }
 
         /// Auto-switch's filtered view. Codex windows are account-wide
@@ -298,17 +299,27 @@ enum Codex {
         return f
     }()
 
-    private static func parseUsage(_ data: Data) throws -> Usage {
+    static func parseUsage(_ data: Data) throws -> Usage {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CodexError.malformed
         }
         var windows: [Usage.Window] = []
+        var idlePeriodSeconds: Int?
         if let rl = root["rate_limit"] as? [String: Any] {
             for key in ["primary_window", "secondary_window"] {
                 if let w = window(rl[key]) { windows.append(w) }
+                if rl["allowed"] as? Bool == true,
+                   rl["limit_reached"] as? Bool == false,
+                   let raw = rl[key] as? [String: Any],
+                   (raw["used_percent"] as? NSNumber)?.doubleValue == 0,
+                   let seconds = (raw["limit_window_seconds"] as? NSNumber)?.intValue,
+                   seconds == 604800,
+                   (raw["reset_after_seconds"] as? NSNumber)?.intValue == seconds {
+                    idlePeriodSeconds = seconds
+                }
             }
         }
-        return Usage(windows: windows)
+        return Usage(windows: windows, idlePeriodSeconds: idlePeriodSeconds)
     }
 
     private static func window(_ any: Any?) -> Usage.Window? {

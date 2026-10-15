@@ -655,6 +655,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             do {
                 codexUsage[key] = try await fetchCodexUsage(for: profile.email, isActive: isLive)
                 clearFetchError(for: key)
+                if let report = codexUsage[key],
+                   CodexPeriodStarter.shouldStart(usage: report, lastAttempt: lastWarmAttempt[key]),
+                   let blob = try await codexStore.blob(for: profile.email, isActive: isLive),
+                   let creds = Codex.credentials(from: blob),
+                   creds.account.email == profile.email {
+                    lastWarmAttempt[key] = Date()
+                    try await CodexPeriodStarter.sendGreeting(creds)
+                }
             } catch {
                 recordFetchError(error, for: key)
                 // An inactive account only reaches the expired state when its
