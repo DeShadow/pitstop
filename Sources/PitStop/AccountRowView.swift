@@ -250,9 +250,10 @@ final class AccountRowView: NSView {
             y += 16
         }
 
-        for line in model.resetCreditLines {
+        for (index, line) in model.resetCreditLines.enumerated() {
             line.draw(at: NSPoint(x: barX, y: y + 1),
-                      withAttributes: [.font: NSFont.systemFont(ofSize: 10.5),
+                      withAttributes: [.font: NSFont.systemFont(ofSize: 10.5,
+                                                                weight: index == 0 ? .medium : .regular),
                                        .foregroundColor: model.barsDimmed
                                            ? NSColor.tertiaryLabelColor : NSColor.secondaryLabelColor])
             y += 15

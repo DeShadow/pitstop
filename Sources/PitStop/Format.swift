@@ -13,6 +13,12 @@ enum Format {
         f.setLocalizedDateFormatFromTemplate("EEEdMMMjmm")
         return f
     }()
+    private static let resetCreditExpiry: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "d MMM HH:mm"
+        return f
+    }()
 
     static func percent(_ v: Double?) -> String {
         guard let v, v.isFinite else { return "–" }
@@ -33,17 +39,12 @@ enum Format {
         guard let credits else { return ["Reset count unavailable"] }
         let count = credits.availableCount
         let summary = count == 1 ? "1 reset" : "\(count) resets"
-        guard count > 0 else { return [summary] }
-        return (0..<count).map { index in
-            let detail: String
+        return [summary] + (0..<count).map { index in
             if index >= credits.expirations.count {
-                detail = "Expiry unavailable"
-            } else if let expires = credits.expirations[index] {
-                detail = "Expires \(day.string(from: expires))"
-            } else {
-                detail = "No expiration"
+                return "• Expiry unavailable"
             }
-            return index == 0 ? "\(summary) · \(detail)" : detail
+            guard let expires = credits.expirations[index] else { return "• No expiration" }
+            return "• Expires \(resetCreditExpiry.string(from: expires))"
         }
     }
 

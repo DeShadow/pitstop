@@ -13,17 +13,18 @@ final class CodexResetCreditsTests: XCTestCase {
         ])
 
         let lines = Format.resetCreditLines(credits)
-        XCTAssertEqual(lines.count, 3)
-        XCTAssertTrue(lines[0].hasPrefix("3 resets · Expires "))
-        XCTAssertTrue(lines[1].hasPrefix("Expires "))
-        XCTAssertEqual(lines[2], "No expiration")
+        XCTAssertEqual(lines.count, 4)
+        XCTAssertEqual(lines[0], "3 resets")
+        XCTAssertTrue(lines[1].hasPrefix("• Expires "))
+        XCTAssertTrue(lines[2].hasPrefix("• Expires "))
+        XCTAssertEqual(lines[3], "• No expiration")
     }
 
     func testDetailsFailurePreservesQuotaAndResetCount() async throws {
         let usage = try await fetchUsage(account: "throttled")
         XCTAssertEqual(usage.windows.first?.usedPercent, 25)
         XCTAssertEqual(Format.resetCreditLines(usage.resetCredits), [
-            "2 resets · Expiry unavailable", "Expiry unavailable",
+            "2 resets", "• Expiry unavailable", "• Expiry unavailable",
         ])
     }
 
