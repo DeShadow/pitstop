@@ -31,6 +31,11 @@ enum Codex {
     static let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
     private static let tokenURL = URL(string: "https://auth.openai.com/oauth/token")!
 
+    struct ResetCredits: Codable, Equatable {
+        let availableCount: Int
+        let expirations: [Date?] // nil entry means the credit has no expiration
+    }
+
     /// Provider-neutral usage for the row: a labelled bar per rate-limit window.
     struct Usage: Codable, Equatable {
         struct Window: Codable, Equatable {
@@ -41,6 +46,7 @@ enum Codex {
         var windows: [Window]
         var fetchedAt = Date()
         var idlePeriodSeconds: Int? = nil
+        var resetCredits: ResetCredits? = nil
         var maxUtilization: Double { windows.map(\.usedPercent).max() ?? 0 }
 
         /// Auto-switch's filtered view. Codex windows are account-wide
@@ -80,6 +86,8 @@ enum Codex {
 
     private static let usageURL =
         URL(string: "https://chatgpt.com/backend-api/codex/usage")!
+    private static let resetCreditsURL =
+        URL(string: "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits")!
 
     // MARK: - Credentials
 
@@ -154,21 +162,37 @@ enum Codex {
     /// metadata endpoint is not proof that the OAuth session ended: the same
     /// token can succeed on the next request. Token refresh failures are still
     /// reported separately as `.sessionExpired`.
-    static func fetchUsage(_ creds: Creds) async throws -> Usage {
-        var req = URLRequest(url: usageURL)
-        req.setValue("Bearer \(creds.accessToken)", forHTTPHeaderField: "Authorization")
-        req.setValue(creds.accountId, forHTTPHeaderField: "chatgpt-account-id")
-        req.setValue("PitStop", forHTTPHeaderField: "User-Agent")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.timeoutInterval = 15
-        let (data, resp) = try await URLSession.shared.data(for: req)
+    static func fetchUsage(_ creds: Creds, session: URLSession = .shared) async throws -> Usage {
+        let (data, resp) = try await session.data(for: accountRequest(usageURL, creds, timeout: 15))
         guard let http = resp as? HTTPURLResponse else { throw CodexError.malformed }
         let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
         if let error = usageResponseError(statusCode: http.statusCode,
                                           retryAfter: retryAfter) {
             throw error
         }
-        return try parseUsage(data)
+        var usage = try parseUsage(data)
+        if let credits = usage.resetCredits, credits.expirations.count < credits.availableCount {
+            // Expirations are optional. Keep the count from usage if this read fails.
+            let request = accountRequest(resetCreditsURL, creds, timeout: 5)
+            if let (data, response) = try? await session.data(for: request),
+               (response as? HTTPURLResponse)?.statusCode == 200,
+               let root = try? JSONSerialization.jsonObject(with: data),
+               let details = parseResetCredits(root) {
+                usage.resetCredits = details
+            }
+            try Task.checkCancellation()
+        }
+        return usage
+    }
+
+    private static func accountRequest(_ url: URL, _ creds: Creds,
+                                       timeout: TimeInterval) -> URLRequest {
+        var req = URLRequest(url: url, timeoutInterval: timeout)
+        req.setValue("Bearer \(creds.accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue(creds.accountId, forHTTPHeaderField: "chatgpt-account-id")
+        req.setValue("PitStop", forHTTPHeaderField: "User-Agent")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        return req
     }
 
     /// Pure response classification used by the live fetch and its tests.
@@ -319,7 +343,26 @@ enum Codex {
                 }
             }
         }
-        return Usage(windows: windows, idlePeriodSeconds: idlePeriodSeconds)
+        return Usage(windows: windows, idlePeriodSeconds: idlePeriodSeconds,
+                     resetCredits: parseResetCredits(root["rate_limit_reset_credits"]))
+    }
+
+    private static func parseResetCredits(_ raw: Any?) -> ResetCredits? {
+        guard let summary = raw as? [String: Any],
+              let count = summary["available_count"] as? Int, count >= 0 else { return nil }
+        let credits = summary["credits"] as? [[String: Any]] ?? []
+        var expirations: [Date?] = []
+        for credit in credits where credit["status"] as? String == "available" {
+            if credit["expires_at"] is NSNull {
+                expirations.append(nil)
+            } else if let stamp = credit["expires_at"] as? String,
+                      let date = (try? Date.ISO8601FormatStyle().parse(stamp)) ?? iso8601.date(from: stamp) {
+                expirations.append(date)
+            }
+        }
+        return ResetCredits(availableCount: count, expirations: expirations.sorted {
+            ($0 ?? .distantFuture) < ($1 ?? .distantFuture)
+        })
     }
 
     private static func window(_ any: Any?) -> Usage.Window? {
