@@ -19,6 +19,7 @@ final class AccountRowView: NSView {
         var sourceBadge: String? = nil  // e.g. "Desktop" — a quiet source tag
         var bars: [BarRow]
         var barsDimmed = false     // last-known (gated) data — render muted
+        var resetCreditLines: [String] = []
         var modelsLine: String?    // "Extra 4%"
         var projectionLine: String? = nil  // "↗ on pace to hit limit ~3:40 PM"
         var statusLine: String?    // error / stale / loading info
@@ -42,7 +43,8 @@ final class AccountRowView: NSView {
     private let resetX: CGFloat = 240
 
     static func height(for model: Model) -> CGFloat {
-        var height: CGFloat = 29 + CGFloat(model.bars.count) * 16 + 6
+        var height: CGFloat = 29 + CGFloat(model.bars.count) * 16
+            + CGFloat(model.resetCreditLines.count) * 15 + 6
         if model.modelsLine != nil { height += 15 }
         if model.projectionLine != nil { height += 15 }
         if model.statusLine != nil { height += 15 }
@@ -246,6 +248,14 @@ final class AccountRowView: NSView {
                                    .foregroundColor: NSColor.secondaryLabelColor,
                                ])
             y += 16
+        }
+
+        for line in model.resetCreditLines {
+            line.draw(at: NSPoint(x: barX, y: y + 1),
+                      withAttributes: [.font: NSFont.systemFont(ofSize: 10.5),
+                                       .foregroundColor: model.barsDimmed
+                                           ? NSColor.tertiaryLabelColor : NSColor.secondaryLabelColor])
+            y += 15
         }
 
         // Per-model / extra-usage line

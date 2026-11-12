@@ -1221,6 +1221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let key = account.key
         let bars: [AccountRowView.BarRow]
         var extras: [String] = []
+        var resetCreditLines: [String] = []
         let dataDate: Date?
 
         if account.isGemini {
@@ -1248,6 +1249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 .init(label: $0.label, utilization: $0.usedPercent,
                       resetText: Format.compactReset($0.resetsAt))
             }
+            if let cu { resetCreditLines = Format.resetCreditLines(cu.resetCredits) }
             dataDate = cu?.fetchedAt
         } else {
             let report = usage[key]
@@ -1316,6 +1318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sourceBadge: account.surfaceTag,
             bars: bars,
             barsDimmed: dimBars,
+            resetCreditLines: resetCreditLines,
             modelsLine: extras.isEmpty ? nil : extras.joined(separator: " · "),
             projectionLine: projection,
             statusLine: status,

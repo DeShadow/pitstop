@@ -29,6 +29,24 @@ enum Format {
         return "resets \(stamp) (\(relative(date.timeIntervalSinceNow)))"
     }
 
+    static func resetCreditLines(_ credits: Codex.ResetCredits?) -> [String] {
+        guard let credits else { return ["Reset count unavailable"] }
+        let count = credits.availableCount
+        let summary = count == 1 ? "1 reset" : "\(count) resets"
+        guard count > 0 else { return [summary] }
+        return (0..<count).map { index in
+            let detail: String
+            if index >= credits.expirations.count {
+                detail = "Expiry unavailable"
+            } else if let expires = credits.expirations[index] {
+                detail = "Expires \(day.string(from: expires))"
+            } else {
+                detail = "No expiration"
+            }
+            return index == 0 ? "\(summary) · \(detail)" : detail
+        }
+    }
+
     /// Whole seconds, clamped into a range `Int` can represent. Reset stamps
     /// arrive straight from provider payloads, and `Int(_: Double)` traps on
     /// anything past `Int.max` — a nonsense timestamp must not kill the app.
